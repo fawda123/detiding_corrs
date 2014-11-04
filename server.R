@@ -5,10 +5,20 @@ library(ggplot2)
 library(grid)
 library(gridExtra)
 library(RColorBrewer)
+library(httr)
+library(XML)
+
+# names of files on server
+files_s3 <- httr::GET('https://s3.amazonaws.com/wtreg/')$content
+files_s3 <- rawToChar(files_s3)
+files_s3 <- htmlTreeParse(files_s3, useInternalNodes = T)
+files_s3 <- xpathSApply(files_s3, '//contents//key', xmlValue)
 
 load('case_grds.RData')
 load('cor_res.RData')
 load('met_ls.RData')
+
+source('funcs.R')
 
 # set ggplot theme
 theme_set(theme_bw())
@@ -81,12 +91,11 @@ shinyServer(function(input, output) {
     hour <- input$hour
     tide <- input$tide
     
-#     browser()
-    
     # files to get from input
     ind <- case_grds$dec_time == as.numeric(day) & case_grds$hour == as.numeric(hour) & case_grds$Tide == as.numeric(tide)
     case_get <- rownames(case_grds[ind, ])
-    files <- list.files('wtreg/', paste0(site, '_wtreg_', case_get, '\\.RData'))
+    files <- grep(paste0(site, '_wtreg_', case_get, '\\.RData'), 
+      files_s3, value = T)
     
     ##
     # metab data
@@ -103,18 +112,26 @@ shinyServer(function(input, output) {
     to_plo1$month <- as.numeric(strftime(to_plo1$Date, '%m'))
     
     # month subs
+    to_plo1 <- to_plo1[!grepl('2011', to_plo1$Date), ] # sometimes 2011 screws up plot
     inds <- to_plo1$month >= months[1] & to_plo1$month <= months[2]
     to_plo1 <- to_plo1[inds, ]
+    
+#     browser()
     
     ##
     # actual data
     files_ls <- vector('list', length = length(files))
     nms <- gsub('\\.RData$', '', files)
     names(files_ls) <- nms
+    # retrieve from AmazonS3, uses httr GET
     for(i in 1:length(files)){
-      load(paste0('wtreg/', files[i]))
+      raw_content <- paste0('https://s3.amazonaws.com/wtreg/', nms[i], '.RData')
+      raw_content <- httr::GET(raw_content)$content
+      connect <- rawConnection(raw_content)
+      load(connect)
       files_ls[[nms[i]]] <- get(nms[i])
       rm(list = nms[i])
+      close(connect)
     }
     
     # melt for plotting
@@ -148,7 +165,7 @@ shinyServer(function(input, output) {
             colour = variable)) +
       geom_line() +
       geom_point(size = 2) +
-      facet_wrap(~Input, ncol = 1) +
+      facet_wrap(~Input, ncol = 1, scales = 'free_y') +
       scale_y_continuous(ylab)  +
       my_theme
     
@@ -197,4 +214,68 @@ shinyServer(function(input, output) {
     
     },height = 600, width = 900)
   
-    })
+  # table output 1
+  output$tablemet <- renderTable({
+    
+    # input from ui
+    site <- input$site
+    months <- input$months
+    day <- input$day
+    hour <- input$hour
+    tide <- input$tide
+    
+#     browser()
+    
+    # files to get from input
+    ind <- case_grds$dec_time == as.numeric(day) & case_grds$hour == as.numeric(hour) & case_grds$Tide == as.numeric(tide)
+    case_get <- rownames(case_grds[ind, ])
+    files <- grep(paste0(site, '_wtreg_', case_get, '\\.RData'), 
+      files_s3, value = T)
+    
+    ##
+    # metab data
+    to_tab1 <- met_ls[names(met_ls) %in% files][[1]]
+    to_tab1$month <- as.numeric(strftime(to_tab1$Date, '%m'))
+    
+    # month subs
+    inds <- to_tab1$month >= months[1] & to_tab1$month <= months[2]
+    to_tab1 <- to_tab1[inds, ]
+    
+    to_tab1 <- met_sums(to_tab1)
+    
+    to_tab1
+  
+  }, include.rownames = F)
+  
+  
+   # table output 2
+  output$tablecorr <- renderTable({
+    
+    # input from ui
+    site <- input$site
+    months <- input$months
+    day <- input$day
+    hour <- input$hour
+    tide <- input$tide
+    
+#     browser()
+    
+    # files to get from input
+    ind <- case_grds$dec_time == as.numeric(day) & case_grds$hour == as.numeric(hour) & case_grds$Tide == as.numeric(tide)
+    case_get <- rownames(case_grds[ind, ])
+ 
+    ##
+    # cor_res data
+    to_get <- grep(paste0('^', site, '_wtreg_', case_get, '$'), cor_res$L1)
+    to_tab2 <- cor_res[to_get, ]
+    to_get <- as.numeric(to_tab2$month) <= months[2] & as.numeric(to_tab2$month) >= months[1]
+    to_tab2 <- to_tab2[to_get, ]
+    to_tab2$sub_var <- factor(to_tab2$sub_var, levels = c('obs', 'dtd'), labels = c('Observed', 'Filtered'))
+    to_tab2 <- dcast(to_tab2, sub_var ~ var, value.var = 'value', fun.aggregate = function(x) mean(x, na.rm = T))
+    names(to_tab2)[1] <- 'Input'
+    
+    to_tab2
+  
+  }, include.rownames = F)
+    
+})

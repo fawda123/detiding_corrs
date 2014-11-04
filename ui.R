@@ -41,7 +41,7 @@ shinyUI(pageWithSidebar(
     tabsetPanel(
       tabPanel("Correlation plots", plotOutput("corrplot", height = "110%")),
       tabPanel("Metabolism plots", plotOutput("metabplot", height = "110%")),
-      tabPanel("Table", tableOutput("table"))
+      tabPanel("Summary tables", h3('Summary of metabolism estimates'), tableOutput("tablemet"), h3('Correlations with tidal change'), tableOutput('tablecorr'))
       ), width = 9
     )
     
