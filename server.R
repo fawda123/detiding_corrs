@@ -195,7 +195,7 @@ shinyServer(function(input, output) {
         plot.margin= unit(c(0, 1, 0, 1), "lines"), 
         text = element_text(size = 16)
         )
-     
+
     # get widths
     pA <- ggplot_gtable(ggplot_build(p1))
     pB <- ggplot_gtable(ggplot_build(p2))
@@ -210,7 +210,7 @@ shinyServer(function(input, output) {
     
     out <- arrangeGrob(pA, pB, pC, heights = c(3, 2, 2))
     
-    print(out)
+    grid.arrange(out)
     
     },height = 600, width = 900)
   
